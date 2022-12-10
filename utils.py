@@ -36,7 +36,7 @@ def build_tf_dataset(img_seq, landmark_seq, opt, train=True):
     
     ds_landmark = tf.data.Dataset.from_generator(lambda: img_landmark, 
                                          tf.as_dtype('float32'),
-                                         tf.TensorShape([None, opt.image_size, opt.image_size, 3]))
+                                         tf.TensorShape([None, opt.image_size, opt.image_size, 1]))
     
     if train:
         ds = tf.data.Dataset.zip((ds_img, ds_landmark)).\
@@ -47,7 +47,7 @@ def build_tf_dataset(img_seq, landmark_seq, opt, train=True):
 
 def build_seq_list(dir_, num_channels, opt):
     seq_list = list(map(lambda x: f'{dir_}/{x}', sorted(os.listdir(dir_))))
-    seq_list=list(map(lambda x: map(lambda y: get_image(f'{x}/{y}', 3, opt), sorted(os.listdir(x))), seq_list))
+    seq_list=list(map(lambda x: map(lambda y: get_image(f'{x}/{y}', num_channels, opt), sorted(os.listdir(x))), seq_list))
     seq_list=list(map(lambda x: tf.concat([list(x)], axis=0), seq_list))
     return seq_list
 
@@ -144,35 +144,45 @@ class VisualizeCallback(callbacks.Callback):
         self.params_ = params
 
     def on_epoch_end(self, epoch, logs=None):
-        l, h, w, c = self.x.shape
+        l, h, w, c = self.x_prev.shape
 
         if self.opt.model == 'PCLGAN':
-            x2y, info = self.model.G([self.img, self.landmark])
+            x2y, info = self.model.G([self.x_prev, self.m_next])
+            x_warped, flow, a, r = info
 
-        fig, ax = plt.subplots(ncols=b, nrows=6 if self.opt.model == '' else 2, figsize=(16, 16))
+        fig, ax = plt.subplots(nrows = 6, ncols =len(l), figsize=(16, 16))
 
-        for i in range(b):
-
+        for i in range(l):
             if self.opt.model == 'PCLGAN':
-                ax[0, i].imshow(self.source[i] * 0.5 + 0.5, cmap='gray')
+                #prev
+                ax[0, i].imshow(self.x_prev[i] * 0.5 + 0.5, cmap='gray')
                 ax[0, i].axis('off')
-                ax[1, i].imshow(self.target_label[i] * 0.5 + 0.5, cmap='gray')
+                
+                #next
+                ax[1, i].imshow(self.x_next[i] * 0.5 + 0.5, cmap='gray')
                 ax[1, i].axis('off')
-                ax[2, i].imshow(x2y_wrapped[i] * 0.5 + 0.5, cmap='gray')
+                
+                #next generated
+                ax[2, i].imshow(x2y[i] * 0.5 + 0.5, cmap='gray')
                 ax[2, i].axis('off')
-                ax[3, i].imshow(rxy[i] * 0.5 + 0.5, cmap='gray')
+                
+                #flow 
+                grid_img = viz_flow(flow[i, ..., 0], flow[i, ..., 1])
+                ax[3, i].imshow(grid_img)
                 ax[3, i].axis('off')
-                ax[4, i].imshow(x2y[i] * 0.5 + 0.5, cmap='gray')
+                
+                #warped 
+                ax[4, i].imshow(x_warped[i] * 0.5 + 0.5, cmap='gray')
                 ax[4, i].axis('off')
-                grid_img = viz_flow(grids[i, ..., 0], grids[i, ..., 1])
-                ax[5, i].imshow(grid_img)
+                
+                #attention mask
+                ax[4, i].imshow(a[i], cmap='gray')
+                ax[4, i].axis('off')
+                
+                #residual 
+                ax[5, i].imshow(r[i] * 0.5 + 0.5, cmap='gray')
                 ax[5, i].axis('off')
-            else:
-                ax[0, i].imshow(self.source[i] * 0.5 + 0.5)
-                ax[0, i].axis('off')
-                ax[1, i].imshow(x2y[i] * 0.5 + 0.5)
-                ax[1, i].axis('off')
-        plt.tight_layout()
+                        
         dir = f'{self.opt.output_dir}/{self.opt.model}/{self.params_}'
         if not os.path.exists(dir):
             os.makedirs(dir)
