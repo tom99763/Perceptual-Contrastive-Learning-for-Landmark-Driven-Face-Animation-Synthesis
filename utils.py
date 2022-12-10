@@ -30,7 +30,7 @@ def get_image(pth, num_channels, opt):
     return (image-127.5)/127.5
 
 def build_tf_dataset(tuple_list, opt):
-    ds = tf.data.Dataset.zip((tuple_list)).\
+    ds = tf.data.Dataset.zip(tuple_list).\
           shuffle(256).batch(opt.batch_size, drop_remainder=True).prefetch(AUTOTUNE)
     return ds
 
