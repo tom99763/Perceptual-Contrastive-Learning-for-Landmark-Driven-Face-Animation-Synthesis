@@ -137,7 +137,7 @@ def viz_flow(u, v, logscale=True, scaledown=6, output=False):
 
 ###Callbacks
 class VisualizeCallback(callbacks.Callback):
-    def __init__(self, source, x_prev, m_prev, x_next, m_next, opt, params):
+    def __init__(self, x_prev, m_prev, x_next, m_next, opt, params):
         super().__init__()
         self.x_prev, self.m_prev, self.x_next, self.m_next = x_prev, m_prev, x_next, m_next
         self.opt = opt
@@ -189,7 +189,7 @@ class VisualizeCallback(callbacks.Callback):
         plt.savefig(f'{dir}/synthesis_{epoch}.jpg')
 
 
-def set_callbacks(opt, params, source, source_label, target, target_label, val_ds = None):
+def set_callbacks(opt, params, x_prev, m_prev, x_next, m_next, val_ds=ds_val):
     ckpt_dir = f"{opt.ckpt_dir}/{opt.model}"
     output_dir = f"{opt.output_dir}/{opt.model}"
 
@@ -205,7 +205,7 @@ def set_callbacks(opt, params, source, source_label, target, target_label, val_d
         monitor='val_ms_ssim', 
         save_best_only=True)
     history_callback = callbacks.CSVLogger(f"{output_dir}/{params}.csv", separator=",", append=False)
-    visualize_callback = VisualizeCallback(source, source_label, target, target_label, opt, params)
+    visualize_callback = VisualizeCallback(x_prev, m_prev, x_next, m_next, opt, params)
     early_stopping_callback = callbacks.EarlyStopping(monitor='val_ms_ssim', patience=15, restore_best_weights=True)
     metrics_callback = metrics.MetricsCallbacks(val_ds, opt, params)
     return [checkpoint_callback, history_callback, visualize_callback, metrics_callback, early_stopping_callback]
