@@ -10,7 +10,7 @@ from tensorflow.keras.applications.vgg16 import VGG16
 import numpy as np
 
 class Generator(tf.keras.Model):
-    def __init__(self, config, refinement, opt):
+    def __init__(self, config):
         super().__init__()
         self.refinement = refinement
         self.act = config['act']
@@ -19,10 +19,8 @@ class Generator(tf.keras.Model):
         self.num_downsampls = config['num_downsamples']
         self.num_resblocks = config['num_resblocks']
         dim = config['base']
-        num_channels = opt.num_channels
 
         self.blocks = tf.keras.Sequential([
-            layers.Input([None, None, 3 if refinement else 6]),
             Padding2D(3, pad_type='reflect'),
             ConvBlock(dim, 7, padding='valid', use_bias=self.use_bias, norm_layer=self.norm, activation=self.act),
         ])
@@ -39,30 +37,29 @@ class Generator(tf.keras.Model):
             dim = dim / 2
             self.blocks.add(ConvTransposeBlock(dim, 3, strides=2, padding='same',
                                                use_bias=self.use_bias,
-                                               norm_layer='layer' if refinement else self.norm,
+                                               norm_layer='layer',
                                                activation=self.act))
+        
         self.blocks.add(Padding2D(3, pad_type='reflect'))
-        self.blocks.add(ConvBlock(2 if not refinement else num_channels,
-                                  7, padding='valid', activation='tanh'))
-
-        if refinement:
-            self.alpha = tf.Variable(0., trainable=True)
+        self.blocks.add(ConvBlock(2 + 1 + 3, 7, padding='valid', activation='linear'))
+        self.alpha = tf.Variable(0., trainable=True)
+        self.beta = tf.Variable(0., trainable=True)
 
     def call(self, inputs):
-        if not self.refinement:
-            x, m = inputs
-            grids_shift = self.blocks(tf.concat([x, m], axis=-1))
-            grids_shift = grids_shift / 10.
-            grids = affine_grid_generator(x.shape[1], x.shape[2], x.shape[0]) + \
-                    tf.transpose(grids_shift, perm=[0, 3, 1, 2])
-            x_wrapped = bilinear_sampler(x, grids)  # wrapping b's shape to a's
-            return x_wrapped, grids
-        else:
-            x = inputs
-            residual = self.blocks(x)
-            residual = residual * self.alpha
-            x = tf.clip_by_value(residual + x, -1., 1.)
-            return x, residual
+        x, m = inputs
+        o = self.blocks(tf.concat([x, m], axis=-1))
+        flow, m, r = tf.nn.tanh(o[...,:2]), tf.nn.sigmoid(o[..., 2:3]) * self.beta, tf.nn.tanh(o[..., 3:6]) * self.alpha
+        
+        #residual warping
+        flow = flow/10.
+        grids = affine_grid_generator(x.shape[1], x.shape[2], x.shape[0]) + \
+                tf.transpose(flow, perm=[0, 3, 1, 2])
+        x_warped = bilinear_sampler(x, grids)
+        
+        #combine
+        x_o = tf.clip_by_value(m* x_warped + (1.-m) * r, -1., 1.)
+        
+        return x_o, (x_warped, flow * 10., m, r)
 
 
 class PatchSampler(tf.keras.Model):
@@ -227,13 +224,12 @@ class PerceptualEncoder(tf.keras.Model):
 class InfoMatch(tf.keras.Model):
     def __init__(self, config, opt):
         super().__init__()
-        self.CP = Generator(config, False, opt)
-        self.R = Generator(config, True, opt)
+        self.G = Generator(config)
         self.D = Discriminator(config)
         if config['use_perceptual']:
             self.E = PerceptualEncoder(config)
         else:
-            self.E = ContentEncoder(self.R.blocks, config)
+            self.E = ContentEncoder(self.G.blocks, config)
         self.F = PatchSampler(config) if config['loss_type'] == 'infonce' else None
         self.config = config
 
@@ -258,118 +254,93 @@ class InfoMatch(tf.keras.Model):
 
     @tf.function
     def train_step(self, inputs):
-        (xa, ma), (xb, mb) = inputs
-
+        x, m = inputs #(batch, length, h, w, c)
+        
+        b, l, h, w, c = x.shape
+        
+        x_prev, m_prev = x[:, :l, ...], m[:, :l, ...]
+        x_next, m_next = x[:, 1:, ...], m[:, 1:, ...]
+        
         with tf.GradientTape(persistent=True) as tape:
-            ###Forward
-            # translation
-            xab_warped, _ = self.CP([xa, mb])
-            xab, rab = self.R(xab_warped)
-
-            # identity
-            xb_idt_warped, _ = self.CP([xb, mb])
-            xb_idt, _ = self.R(xb_idt_warped)
-
-            # discrimination
-            critic_real = self.D(xa)
-            critic_fake = self.D(xab)
-
-            ###compute loss
-            # adversarial loss
-            d_loss, g_loss = gan_loss(critic_real, critic_fake, self.config['gan_mode'])
-
-            # perceptual loss
-            if self.config['loss_type'] == 'infonce':
-                l_info_trl, mi_trl = self.loss_func(xb, xab, self.E, self.F)
-                l_info_idt, mi_idt = self.loss_func(xb, xb_idt, self.E, self.F)
-
-            elif self.config['loss_type'] == 'perceptual_distance':
-                l_info_trl = self.loss_func(xb, xab, self.E)
-                l_info_idt = self.loss_func(xb, xb_idt, self.E)
-                mi_trl, mi_idt = 0., 0.
-
-            elif self.config['loss_type'] == 'pixel_distance':
-                l_info_trl = self.loss_func(xb, xab)
-                l_info_idt = self.loss_func(xb, xb_idt)
-                mi_trl, mi_idt = 0., 0.
-
-            elif self.config['loss_type'] == 'empty':
-                l_info_trl, l_info_idt = 0., 0.
-                mi_trl, mi_idt = 0., 0.
-
-            # total loss
+            #identity 
+            x_idt, _ = self.G([x_prev, m_prev])
+            
+            #translation
+            x_trl, _ = self.G([x_prev, m_next])
+            
+            #discrimination
+            critic_real = self.D(x_next)
+            critic_fake = self.D(x_trl)
+            
+            #perceptual loss
+            l_info_trl, mi_trl = self.loss_func(x_next, x_trl, self.E, self.F)
+            l_info_idt, mi_idt = self.loss_func(x_idt, x_idt, self.E, self.F)
+            
+            #total loss
             l_info = 0.5 * (l_info_trl + l_info_idt) \
                 if self.config['use_identity'] else l_info_trl
-
+            
             l_g = g_loss + l_info
             l_d = d_loss
 
-        Ggrads = tape.gradient(l_g, self.CP.trainable_weights + self.R.trainable_weights +
-                                    self.F.trainable_weights if self.config['loss_type'] == 'infonce' else [])
+        Ggrads = tape.gradient(l_g, self.G.trainable_weights + self.F.trainable_weights)
         Dgrads = tape.gradient(l_d, self.D.trainable_weights)
 
-        self.G_optimizer.apply_gradients(zip(Ggrads, self.CP.trainable_weights + self.R.trainable_weights +
-                                                     self.F.trainable_weights if self.config[
-                                                                                     'loss_type'] == 'infonce' else []))
+        self.G_optimizer.apply_gradients(zip(Ggrads, self.G.trainable_weights + self.F.trainable_weights))
         self.D_optimizer.apply_gradients(zip(Dgrads, self.D.trainable_weights))
-
-        ssim = tf.reduce_mean(ssim_score(xab, xb))
+        
+        #records
+        ssim = ssim_score(x_trl, x_next)
+        ms_ssim = ms_ssim_score(x_trl, x_next)
 
         history = {'info_trl': l_info_trl, 'info_idt': l_info_idt,
-                'g_loss': g_loss, 'd_loss': d_loss, 'ssim':ssim}
+                'g_loss': g_loss, 'd_loss': d_loss, 
+                 'ssim':ssim, 'ms_ssim':ms_ssim}
 
-        if mi_trl!=0.:
-            for i, mi in enumerate(mi_trl):
-                history[f'mi_trl_{i}'] = mi
+        for i, mi in enumerate(mi_trl):
+            history[f'mi_trl_{i}'] = mi
 
-        if mi_idt!=0.:
-            for i, mi in enumerate(mi_idt):
-                history[f'mi_idt_{i}']=mi
-
+        for i, mi in enumerate(mi_idt):
+            history[f'mi_idt_{i}']=mi
+            
         return history
 
+    
     def test_step(self, inputs):
-        (xa, ma), (xb, mb) = inputs
-
-        ###Forward
-        # translation
-        xab_warped, _ = self.CP([xa, mb])
-        xab, rab = self.R(xab_warped)
-
-        # identity
-        xb_idt_warped, _ = self.CP([xb, mb])
-        xb_idt, _ = self.R(xb_idt_warped)
-
-        # perceptual loss
-        if self.config['loss_type'] == 'infonce':
-            l_info_trl, mi_trl = self.loss_func(xb, xab, self.E, self.F)
-            l_info_idt, mi_idt = self.loss_func(xb, xb_idt, self.E, self.F)
-
-        elif self.config['loss_type'] == 'perceptual_distance':
-            l_info_trl = self.loss_func(xb, xab, self.E)
-            l_info_idt = self.loss_func(xb, xb_idt, self.E)
-            mi_trl, mi_idt = 0., 0.
-
-        elif self.config['loss_type'] == 'pixel_distance':
-            l_info_trl = self.loss_func(xb, xab)
-            l_info_idt = self.loss_func(xb, xb_idt)
-            mi_trl, mi_idt = 0., 0.
-
-        elif self.config['loss_type'] == 'empty':
-            l_info_trl, l_info_idt = 0., 0.
-            mi_trl, mi_idt = 0., 0.
-
-        ssim = tf.reduce_mean(ssim_score(xab, xb))
+        x, m = inputs #(batch, length, h, w, c)
+        
+        b, l, h, w, c = x.shape
+        
+        x_prev, m_prev = x[:, :l, ...], m[:, :l, ...]
+        x_next, m_next = x[:, 1:, ...], m[:, 1:, ...]
+        
+        #identity 
+        x_idt, _ = self.G([x_prev, m_prev])
+            
+        #translation
+        x_trl, _ = self.G([x_prev, m_next])
+            
+        #discrimination
+        critic_real = self.D(x_next)
+        critic_fake = self.D(x_trl)
+        
+        #perceptual loss
+        l_info_trl, mi_trl = self.loss_func(x_next, x_trl, self.E, self.F)
+        l_info_idt, mi_idt = self.loss_func(x_idt, x_idt, self.E, self.F)
+        
+        #records
+        ssim = ssim_score(x_trl, x_next)
+        ms_ssim = ms_ssim_score(x_trl, x_next)
 
         history = {'info_trl': l_info_trl, 'info_idt': l_info_idt,
-                   'ssim': ssim}
+                'g_loss': g_loss, 'd_loss': d_loss, 
+                 'ssim':ssim, 'ms_ssim':ms_ssim}
 
-        if mi_trl!=0.:
-            for i, mi in enumerate(mi_trl):
-                history[f'mi_trl_{i}'] = mi
+        for i, mi in enumerate(mi_trl):
+            history[f'mi_trl_{i}'] = mi
 
-        if mi_idt!=0.:
-            for i, mi in enumerate(mi_idt):
-                history[f'mi_idt_{i}']=mi
-
+        for i, mi in enumerate(mi_idt):
+            history[f'mi_idt_{i}']=mi
+            
         return history
+
