@@ -18,6 +18,7 @@ def parse_opt():
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
     parser.add_argument('--beta_1', type=float, default=0.5, help='momentum of adam')
     parser.add_argument('--beta_2', type=float, default=0.999, help='momentum of adam')
+    parser.add_argument('--sample_length', type=float, default=5)
     opt, _ = parser.parse_known_args()
     return opt
   
@@ -39,6 +40,7 @@ def main():
 
   #sampling 
   for x, m in ds_val.take(1):
+    x, m = x[:opt.sample_length], m[:opt.sample_length]
     l, h, w, c = x.shape
     x_prev, m_prev = x[:l, ...], m[:l, ...]
     x_next, m_next = x[1:, ...], m[1:, ...]
