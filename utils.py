@@ -55,13 +55,9 @@ def build_dataset(opt):
   test_img = build_seq_list(opt.test_img_dir, 3, opt)
   test_landmark = build_seq_list(opt.test_landmark_dir, 1, opt)
   
-  #tuple
-  train = tuple(zip(train_img, train_landmark))
-  test = tuple(zip(test_img, test_landmark))
-  
   #tf-dataset
-  ds_train = build_tf_dataset(train, opt)
-  ds_val = build_tf_dataset(test, opt)
+  ds_train = build_tf_dataset(train_img, train_landmark, opt)
+  ds_val = build_tf_dataset(test_img, test_landmark, opt)
   return ds_train, ds_val
 
 def makecolorwheel():
