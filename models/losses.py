@@ -16,10 +16,10 @@ def l2_loss(x, y):
     return tf.reduce_mean((x - y) ** 2)
 
 def ssim_score(x1, x2):
-    return tf.image.ssim(x1, x2, max_val=1.0)
+    return tf.reduce_mean(tf.image.ssim(x1, x2, max_val=1.0))
   
 def ms_ssim_score(x1, x2):
-  return tf.image.ssim_multiscale(x1, x2, 1.0)
+  return tf.reduce_mean(tf.image.ssim_multiscale(x1, x2, 1.0))
 
 def perceptual_loss(source, target, netE):
     feat_source = netE(source, training=True)
