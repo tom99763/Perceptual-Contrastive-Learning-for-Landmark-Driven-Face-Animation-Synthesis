@@ -39,7 +39,7 @@ def build_tf_dataset(img_seq, landmark_seq, opt):
                                          tf.TensorShape([None, opt.image_size, opt.image_size, 3]))
     
     ds = tf.data.Dataset.zip((ds_img, ds_landmark)).\
-          shuffle(256).batch(opt.batch_size, drop_remainder=True).prefetch(AUTOTUNE)
+          shuffle(256).prefetch(AUTOTUNE)
     return ds
 
 def build_seq_list(dir_, num_channels, opt):
