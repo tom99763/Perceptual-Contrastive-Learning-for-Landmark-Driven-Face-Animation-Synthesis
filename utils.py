@@ -134,41 +134,23 @@ def viz_flow(u, v, logscale=True, scaledown=6, output=False):
 
 ###Callbacks
 class VisualizeCallback(callbacks.Callback):
-    def __init__(self, source, source_label, target, target_label, opt, params):
+    def __init__(self, source, x_prev, m_prev, x_next, m_next, opt, params):
         super().__init__()
-        self.source = source
-        self.target = target
-        self.source_label = source_label
-        self.target_label = target_label
+        self.x_prev, self.m_prev, self.x_next, self.m_next = x_prev, m_prev, x_next, m_next
         self.opt = opt
         self.params_ = params
 
     def on_epoch_end(self, epoch, logs=None):
-        b, h, w, c = self.target.shape
+        l, h, w, c = self.x.shape
 
-        if self.opt.model == 'InfoMatch':
-            x2y_wrapped, grids = self.model.CP([self.source, self.target_label])
-            x2y, rxy = self.model.R(x2y_wrapped)
-            grids = tf.transpose(grids, [0, 2, 3, 1])
+        if self.opt.model == 'PCLGAN':
+            x2y, info = self.model.G([self.img, self.landmark])
 
-        elif self.opt.model == 'CycleGAN' or self.opt.model == 'DCLGAN':
-            x2y = self.model.Gb(self.source)
-
-        elif self.opt.model == 'UNIT':
-            ha, _ = self.model.Ga.encode(self.source)
-            x2y = self.model.Gb.decode(ha)
-
-        elif self.opt.model == 'UGATIT':
-            x2y, _ = self.model.Gb(self.source)
-
-        else:
-            x2y = self.model.G(self.source)
-
-        fig, ax = plt.subplots(ncols=b, nrows=6 if self.opt.model == 'InfoMatch' else 2, figsize=(16, 16))
+        fig, ax = plt.subplots(ncols=b, nrows=6 if self.opt.model == '' else 2, figsize=(16, 16))
 
         for i in range(b):
 
-            if self.opt.model == 'InfoMatch':
+            if self.opt.model == 'PCLGAN':
                 ax[0, i].imshow(self.source[i] * 0.5 + 0.5, cmap='gray')
                 ax[0, i].axis('off')
                 ax[1, i].imshow(self.target_label[i] * 0.5 + 0.5, cmap='gray')
