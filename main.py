@@ -38,10 +38,10 @@ def main():
       model.load_weights(tf.train.latest_checkpoint(ckpt_dir))
 
   #sampling 
-  for (x, m) in ds_val.take(1):
-    b, l, h, w, c = x.shape
-    x_prev, m_prev = x[:, :l, ...], m[:, :l, ...]
-    x_next, m_next = x[:, 1:, ...], m[:, 1:, ...]
+  for x, m in ds_val.take(1):
+    l, h, w, c = x.shape
+    x_prev, m_prev = x[:l, ...], m[:l, ...]
+    x_next, m_next = x[1:, ...], m[1:, ...]
   
   callbacks = set_callbacks(opt, params, x_prev, m_next, val_ds=ds_val)
   
