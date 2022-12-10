@@ -221,7 +221,7 @@ class PerceptualEncoder(tf.keras.Model):
         return tf.keras.Model(inputs=vgg.input, outputs=outputs)
 
 
-class InfoMatch(tf.keras.Model):
+class PCLGAN(tf.keras.Model):
     def __init__(self, config, opt):
         super().__init__()
         self.G = Generator(config)
@@ -254,12 +254,12 @@ class InfoMatch(tf.keras.Model):
 
     @tf.function
     def train_step(self, inputs):
-        x, m = inputs #(batch, length, h, w, c)
+        x, m = inputs #(length, h, w, c)
         
-        b, l, h, w, c = x.shape
+        l, h, w, c = x.shape
         
-        x_prev, m_prev = x[:, :l, ...], m[:, :l, ...]
-        x_next, m_next = x[:, 1:, ...], m[:, 1:, ...]
+        x_prev, m_prev = x[:l, ...], m[:l, ...]
+        x_next, m_next = x[1:, ...], m[1:, ...]
         
         with tf.GradientTape(persistent=True) as tape:
             #identity 
@@ -307,12 +307,12 @@ class InfoMatch(tf.keras.Model):
 
     
     def test_step(self, inputs):
-        x, m = inputs #(batch, length, h, w, c)
+        x, m = inputs #(length, h, w, c)
         
-        b, l, h, w, c = x.shape
+        l, h, w, c = x.shape
         
-        x_prev, m_prev = x[:, :l, ...], m[:, :l, ...]
-        x_next, m_next = x[:, 1:, ...], m[:, 1:, ...]
+        x_prev, m_prev = x[:l, ...], m[:l, ...]
+        x_next, m_next = x[1:, ...], m[1:, ...]
         
         #identity 
         x_idt, _ = self.G([x_prev, m_prev])
