@@ -199,8 +199,13 @@ def set_callbacks(opt, params, source, source_label, target, target_label, val_d
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    checkpoint_callback = callbacks.ModelCheckpoint(filepath=f"{ckpt_dir}/{params}/{opt.model}", save_weights_only=True)
+    checkpoint_callback = callbacks.ModelCheckpoint(
+        filepath=f"{ckpt_dir}/{params}/{opt.model}", 
+        save_weights_only=True, 
+        monitor='val_ms_ssim', 
+        save_best_only=True)
     history_callback = callbacks.CSVLogger(f"{output_dir}/{params}.csv", separator=",", append=False)
     visualize_callback = VisualizeCallback(source, source_label, target, target_label, opt, params)
+    early_stopping_callback = callbacks.EarlyStopping(monitor='val_ms_ssim', patience=15, restore_best_weights=True)
     metrics_callback = metrics.MetricsCallbacks(val_ds, opt, params)
-    return [checkpoint_callback, history_callback, visualize_callback, metrics_callback]
+    return [checkpoint_callback, history_callback, visualize_callback, metrics_callback, early_stopping_callback]
