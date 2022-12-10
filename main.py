@@ -45,7 +45,7 @@ def main():
     x_prev, m_prev = x[:l, ...], m[:l, ...]
     x_next, m_next = x[1:, ...], m[1:, ...]
   
-  callbacks = set_callbacks(opt, params, x_prev, m_next, val_ds=ds_val)
+  callbacks = set_callbacks(opt, params, x_prev, m_prev, x_next, m_next, val_ds=ds_val)
   
   #train
   model.fit(
