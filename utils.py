@@ -29,7 +29,7 @@ def get_image(pth, num_channels, opt):
     image = tf.cast(tf.image.resize(image, (opt.image_size, opt.image_size)), 'float32')
     return (image-127.5)/127.5
 
-def build_tf_dataset(img_seq, landmark_seq, opt):
+def build_tf_dataset(img_seq, landmark_seq, opt, train=True):
     ds_img = tf.data.Dataset.from_generator(lambda: img_seq, 
                                          tf.as_dtype('float32'),
                                          tf.TensorShape([None, opt.image_size, opt.image_size, 3]))
@@ -38,8 +38,11 @@ def build_tf_dataset(img_seq, landmark_seq, opt):
                                          tf.as_dtype('float32'),
                                          tf.TensorShape([None, opt.image_size, opt.image_size, 3]))
     
-    ds = tf.data.Dataset.zip((ds_img, ds_landmark)).\
+    if train:
+        ds = tf.data.Dataset.zip((ds_img, ds_landmark)).\
           shuffle(256).prefetch(AUTOTUNE)
+    else:
+        ds = tf.data.Dataset.zip((ds_img, ds_landmark)).prefetch(AUTOTUNE)
     return ds
 
 def build_seq_list(dir_, num_channels, opt):
@@ -57,7 +60,7 @@ def build_dataset(opt):
   
   #tf-dataset
   ds_train = build_tf_dataset(train_img, train_landmark, opt)
-  ds_val = build_tf_dataset(test_img, test_landmark, opt)
+  ds_val = build_tf_dataset(test_img, test_landmark, opt, False)
   return ds_train, ds_val
 
 def makecolorwheel():
