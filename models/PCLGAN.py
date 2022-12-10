@@ -43,12 +43,11 @@ class Generator(tf.keras.Model):
         self.blocks.add(Padding2D(3, pad_type='reflect'))
         self.blocks.add(ConvBlock(2 + 1 + 3, 7, padding='valid', activation='linear'))
         self.alpha = tf.Variable(0., trainable=True)
-        self.beta = tf.Variable(0., trainable=True)
 
     def call(self, inputs):
         x, m = inputs
         o = self.blocks(tf.concat([x, m], axis=-1))
-        flow, m, r = tf.nn.tanh(o[...,:2]), tf.nn.sigmoid(o[..., 2:3]) * self.beta, tf.nn.tanh(o[..., 3:6]) * self.alpha
+        flow, a, r = tf.nn.tanh(o[...,:2]), tf.nn.sigmoid(o[..., 2:3]), tf.nn.tanh(o[..., 3:6]) * self.alpha
         
         #residual warping
         flow = flow/10.
@@ -57,9 +56,9 @@ class Generator(tf.keras.Model):
         x_warped = bilinear_sampler(x, grids)
         
         #combine
-        x_o = tf.clip_by_value(m* x_warped + (1.-m) * r, -1., 1.)
+        x_o = tf.clip_by_value(a* x_warped + (1.-a) * r, -1., 1.)
         
-        return x_o, (x_warped, flow * 10., m, r)
+        return x_o, (x_warped, flow * 10., a, r)
 
 
 class PatchSampler(tf.keras.Model):
