@@ -29,24 +29,16 @@ def get_image(pth, num_channels, opt):
     image = tf.cast(tf.image.resize(image, (opt.image_size, opt.image_size)), 'float32')
     return (image-127.5)/127.5
 
-def build_tf_dataset(source_list, target_list, opt):
-    ds_source = tf.data.Dataset.from_tensor_slices(source_list).map(
-        lambda pth: get_image(pth[0], pth[1], opt),
-        num_parallel_calls=AUTOTUNE).shuffle(256).prefetch(
-        AUTOTUNE)
-    ds_target = tf.data.Dataset.from_tensor_slices(target_list).map(
-        lambda pth: get_image(pth[0], pth[1], opt),
-        num_parallel_calls=AUTOTUNE).shuffle(256).prefetch(
-        AUTOTUNE)
-    ds = tf.data.Dataset.zip((ds_source, ds_target)).shuffle(256).batch(opt.batch_size, drop_remainder=True).prefetch(
-        AUTOTUNE)
+def build_tf_dataset(tuple_list, opt):
+    ds = tf.data.Dataset.zip((tuple_list)).\
+          shuffle(256).batch(opt.batch_size, drop_remainder=True).prefetch(AUTOTUNE)
     return ds
 
-def build_seq_list(dir, num_channels, opt):
-  seq_list = sorted(list(map(lambda x: f'{dir}/{x}', os.listdir(dir))))
-  seq_list = sorted(list(
-    map(lambda x: sorted(list(map(lambda y: get_image(f'{x}/{y}', num_channels, opt))), os.listdir(x)), seq_list)))
-  return seq_list
+def build_seq_list(dir_, num_channels, opt):
+    seq_list = list(map(lambda x: f'{dir_}/{x}', sorted(os.listdir(dir_))))
+    seq_list=list(map(lambda x: map(lambda y: get_image(f'{x}/{y}', 3, opt), sorted(os.listdir(x))), seq_list))
+    seq_list=list(map(lambda x: tf.concat([list(x)], axis=0), seq_list))
+    return seq_list
 
 def build_dataset(opt):
   #imgs
