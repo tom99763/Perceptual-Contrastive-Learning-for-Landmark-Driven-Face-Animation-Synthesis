@@ -10,7 +10,7 @@ def parse_opt():
     parser.add_argument('--test_landmark_dir', type=str, default='')
     parser.add_argument('--ckpt_dir', type=str, default='./checkpoints')
     parser.add_argument('--output_dir', type=str, default='./outputs')
-    parser.add_argument('--model', type=str, default='InfoMatch')
+    parser.add_argument('--model', type=str, default='PCLGAN')
     parser.add_argument('--num_epochs', type=int, default=150)
     parser.add_argument('--batch_size', type=int, default=3)
     parser.add_argument('--image_size', type=int, default=128)
